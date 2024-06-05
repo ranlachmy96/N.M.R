@@ -1,18 +1,20 @@
 # import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
 # from sklearn.neighbors import KNNeighborsClassifier
 # from sklearn.naive_bayes import GaussianNB
 # from sklearn.ensemble import RandomForestClassifier
-import liac_arff
+import arff
+import numpy as np
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 # Load the dataset
 file = open("final-dataset.arff")
-decoder = liac_arff.ArffDecoder()
+# # # data, meta = arff.loadarff(file)
+decoder = arff.ArffDecoder()
 data = decoder.decode(file, encode_nominal=True)
+# data = arff.load(open('final-dataset.arff', 'r'))
 
 vals = [val[0:-1] for val in data['data']]
 labels = [lab[-1] for lab in data['data']]
@@ -46,10 +48,11 @@ y_train = np.array(Y_train)
 y_test = np.array(Y_test)
 
 # SVM
-model = SVC(kernal='sigmoid', gamma='auto')
+model = SVC(kernel='sigmoid', gamma='auto')
 model.fit(x_train, y_train)
 
 y_pred = model.predict(x_test)
 print((accuracy_score(y_test, y_pred))*100, '%')
+
 
 
