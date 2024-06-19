@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
+import joblib
 
 # Load the dataset
 file = open("final-dataset.arff")
@@ -45,6 +46,9 @@ y_test = np.array(Y_test)
 # SVM
 model = SVC(kernel='sigmoid', gamma='auto')
 model.fit(x_train, y_train)
+
+joblib.dump(model, 'model.joblib')
+joblib.dump(scaler, 'scaler.joblib')
 
 y_pred = model.predict(x_test)
 y_pred = pd.DataFrame(y_pred)
