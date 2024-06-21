@@ -102,7 +102,7 @@ class PacketSniffer:
         self.running = False
 
 # Initialize PacketSniffer for port 5000 (Flask's default port)
-sniffer = PacketSniffer(sniff_port=5000)
+sniffer = PacketSniffer(sniff_port=3000)
 
 # Endpoint for handling requests
 @app.route('/', methods=['GET', 'POST'])
