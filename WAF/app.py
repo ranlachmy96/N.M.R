@@ -3,6 +3,7 @@ import threading
 import pydivert
 import logging
 import joblib
+import time
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -21,6 +22,8 @@ class PacketSniffer:
         self.lock = threading.Lock()
 
     def sniff_packets(self):
+        packet_count = 0
+        start_time = time.time()
         while self.running:
             try:
                 with self.lock:
@@ -29,6 +32,17 @@ class PacketSniffer:
                     else:
                         break
                 if packet:
+                    packet_count += 1
+                    current_time = time.time()
+                    elapsed_time = current_time - start_time
+
+                    if elapsed_time >=1:
+                        packet_rate = packet_count / elapsed_time
+                        logging.info(f"Packet rate: {packet_rate:.2f} packets/second")
+
+                        packet_count = 0
+                        start_time = current_time
+
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
                     features = scaler.transform([features])
@@ -49,8 +63,8 @@ class PacketSniffer:
         # Extract relevant features from the packet for the model
         # This function should be customized based on your feature extraction needs
         features = [
-        0,  # 'SRC_ADD'
-        0,  # 'DES_ADD'
+        packet.src_addr,  # 'SRC_ADD'
+        packet.dst_addr,  # 'DES_ADD'
         0,  # 'PKT_ID'
         0,  # 'FROM_NODE'
         0,  # 'TO_NODE'
@@ -69,12 +83,12 @@ class PacketSniffer:
         0,  # 'PKT_DELAY_NODE'
         0,  # 'PKT_RATE'
         0,  # 'BYTE_RATE'
-        0,  # 'PKT_AVG_SIZE'
+        1500,  # 'PKT_AVG_SIZE'
         0,  # 'UTILIZATION'
         0,  # 'PKT_DELAY'
         0,  # 'PKT_SEND_TIME'
         0,  # 'PKT_RESEVED_TIME'
-        0,  # 'FIRST_PKT_SENT'
+        packet,  # 'FIRST_PKT_SENT'
         # 0,  # 'LAST_PKT_RESEVED'
         0   # 'PKT_CLASS'
         ]
