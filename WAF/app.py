@@ -4,6 +4,7 @@ import pydivert
 import logging
 import joblib
 import time
+import ipaddress
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -20,9 +21,43 @@ class PacketSniffer:
         self.running = True
         self.w = None
         self.lock = threading.Lock()
+        self.packet_count = 0
+        self.packet_rate = 0
+        self.byte_count = 0
+        self.packet_id = 123456
+
+    def map_protocol(self, protocol):
+        # Define a dictionary to map protocols to types
+        protocol_map = {
+            'TCP': 'tcp',
+            'UDP': 'ack',
+            'ICMP': 'ping',
+        }
+
+        # Use the dictionary to map the protocol to a type
+        # If the protocol is not in the dictionary, return 'cbr' as a default type
+        return protocol_map.get(protocol, 'cbr')
+
+    def map_ip_to_node(self, ip_address):
+        # Define a dictionary to map IP addresses to node names
+        ip_node_map = {
+            '192.168.1.1': 'Switch1',
+            '192.168.1.2': 'Router',
+            '192.168.1.3': 'server1',
+            # Add more mappings as needed
+        }
+
+        # Use the dictionary to map the IP address to a node name
+        # If the IP address is not in the dictionary, return the IP address as a default node name
+        return ip_node_map.get(ip_address, ip_address)
+
+    def calculate_average_packet_size(self):
+        # Avoid division by zero
+        if self.packet_count == 0:
+            return 0
+        return self.byte_count / self.packet_count
 
     def sniff_packets(self):
-        packet_count = 0
         start_time = time.time()
         while self.running:
             try:
@@ -32,15 +67,18 @@ class PacketSniffer:
                     else:
                         break
                 if packet:
-                    packet_count += 1
+                    self.packet_id += 1
+                    self.packet_count += 1
+                    self.byte_count += len(packet.raw)
                     current_time = time.time()
                     elapsed_time = current_time - start_time
 
                     if elapsed_time >=1:
-                        packet_rate = packet_count / elapsed_time
-                        logging.info(f"Packet rate: {packet_rate:.2f} packets/second")
+                        self.byte_count = self.byte_count / elapsed_time
+                        self.packet_rate = self.packet_count / elapsed_time
+                        logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
 
-                        packet_count = 0
+                        self.packet_count = 0
                         start_time = current_time
 
                     # Extract features from packet for anomaly detection
@@ -62,34 +100,42 @@ class PacketSniffer:
     def extract_features(self, packet):
         # Extract relevant features from the packet for the model
         # This function should be customized based on your feature extraction needs
+        # Convert IP addresses to integers
+        src_addr = int(ipaddress.ip_address(packet.src_addr))
+        dst_addr = int(ipaddress.ip_address(packet.dst_addr))
+        pkt_type = self.map_protocol(packet.protocol)  # Map the protocol to a type
+        node_name_from = self.map_ip_to_node(packet.src_addr)
+        node_name_to = self.map_ip_to_node(packet.dst_addr)
+        avg_packet_size = self.calculate_average_packet_size()
+
         features = [
-        packet.src_addr,  # 'SRC_ADD'
-        packet.dst_addr,  # 'DES_ADD'
-        0,  # 'PKT_ID'
+        src_addr,  # 'SRC_ADD'
+        dst_addr,  # 'DES_ADD'
+        self.packet_id,  # 'PKT_ID'
         0,  # 'FROM_NODE'
         0,  # 'TO_NODE'
-        0,  # 'PKT_TYPE'
+        pkt_type,  # 'PKT_TYPE'
         len(packet.raw),  # 'PKT_SIZE'
-        0,  # 'FLAGS'
+        "-------",  # 'FLAGS'
         0,  # 'FID'
         0,  # 'SEQ_NUMBER'
-        0,  # 'NUMBER_OF_PKT'
-        0,  # 'NUMBER_OF_BYTE'
-        0,  # 'NODE_NAME_FROM'
-        0,  # 'NODE_NAME_TO'
+        self.packet_count,  # 'NUMBER_OF_PKT'
+        len(packet.raw),  # 'NUMBER_OF_BYTE'
+        node_name_from,  # 'NODE_NAME_FROM'
+        node_name_to,  # 'NODE_NAME_TO'
         0,  # 'PKT_IN'
         0,  # 'PKT_OUT'
         0,  # 'PKT_R'
         0,  # 'PKT_DELAY_NODE'
-        0,  # 'PKT_RATE'
-        0,  # 'BYTE_RATE'
-        1500,  # 'PKT_AVG_SIZE'
+        self.packet_rate,  # 'PKT_RATE'
+        self.byte_count,  # 'BYTE_RATE'
+        avg_packet_size,  # 'PKT_AVG_SIZE'
         0,  # 'UTILIZATION'
         0,  # 'PKT_DELAY'
         0,  # 'PKT_SEND_TIME'
         0,  # 'PKT_RESEVED_TIME'
-        packet,  # 'FIRST_PKT_SENT'
-        # 0,  # 'LAST_PKT_RESEVED'
+        # packet,  # 'FIRST_PKT_SENT'
+        0,  # 'LAST_PKT_RESEVED'
         0   # 'PKT_CLASS'
         ]
         return features
