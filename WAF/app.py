@@ -5,6 +5,7 @@ import logging
 import joblib
 import time
 import ipaddress
+import subprocess
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -13,6 +14,7 @@ app = Flask(__name__)
 
 model = joblib.load('../anamolyDetector/model.joblib')
 scaler = joblib.load('../anamolyDetector/scaler.joblib')
+current_port = 3000
 
 # PacketSniffer class for sniffing packets
 class PacketSniffer:
@@ -57,6 +59,16 @@ class PacketSniffer:
             return 0
         return self.byte_count / self.packet_count
 
+    import ipaddress
+
+    def is_bogon(self,ip):
+        try:
+            return (ipaddress.ip_address(ip).is_private or
+                    ipaddress.ip_address(ip).is_reserved or
+                    ipaddress.ip_address(ip).is_multicast)
+        except ValueError:
+            return False
+
     def sniff_packets(self):
         start_time = time.time()
         while self.running:
@@ -87,7 +99,13 @@ class PacketSniffer:
                     prediction = model.predict(features)
                     if prediction == 1:  # Assuming '1' indicates an anomaly
                         logging.warning(f"Anomaly detected from {packet.src_addr}:{packet.src_port}")
-                        # Additional logic to handle the anomaly, e.g., block the IP, etc.
+
+                        # Additional logic to handle the anomaly, e.g., port changing.
+                        global current_port  # Replace with the new port you want to use
+                        current_port += 1
+                        subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
+                    # if self.is_bogon(packet.src_addr):
+                    #     logging.warning(f"Packet from {packet.src_addr}:{packet.src_port} is a bogon address.")
                     else:
                         logging.info(f"Packet from {packet.src_addr}:{packet.src_port} is normal.")
                     # Log specific details of the packet
@@ -163,8 +181,8 @@ class PacketSniffer:
     def stop_sniffing(self):
         self.running = False
 
-# Initialize PacketSniffer for port 5000 (Flask's default port)
-sniffer = PacketSniffer(sniff_port=3000)
+# Initialize PacketSniffer for port 3000 (Node's default port)
+sniffer = PacketSniffer(sniff_port=current_port)
 
 # Endpoint for handling requests
 @app.route('/', methods=['GET', 'POST'])

@@ -1,7 +1,9 @@
 const { spawn } = require('child_process');
+const path = require('path');
 
 exports.startServer = (port) => {
-    const server = spawn('node', ['index.js', port]);
+    const indexPath = path.resolve(__dirname, '../index.js');
+    const server = spawn('node', [indexPath, port]);
 
     server.stdout.on('data', (data) => {
         console.log(`stdout: ${data}`);
