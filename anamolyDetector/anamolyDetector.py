@@ -11,6 +11,7 @@ import joblib
 file = open("final-dataset.arff")
 decoder = arff.ArffDecoder()
 data = decoder.decode(file, encode_nominal=True)
+print(data['data'][0])
 
 vals = [val[0:-1] for val in data['data']]
 labels = [lab[-1] for lab in data['data']]

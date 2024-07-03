@@ -31,14 +31,14 @@ class PacketSniffer:
     def map_protocol(self, protocol):
         # Define a dictionary to map protocols to types
         protocol_map = {
-            'TCP': 'tcp',
-            'UDP': 'ack',
-            'ICMP': 'ping',
+            'TCP': '0',
+            'UDP': '1',
+            'CBR': '2',
         }
 
         # Use the dictionary to map the protocol to a type
-        # If the protocol is not in the dictionary, return 'cbr' as a default type
-        return protocol_map.get(protocol, 'cbr')
+        # If the protocol is not in the dictionary, return 'PING' as a default type
+        return protocol_map.get(protocol, '3')
 
     def map_ip_to_node(self, ip_address):
         # Define a dictionary to map IP addresses to node names
@@ -132,17 +132,15 @@ class PacketSniffer:
         self.packet_id,  # 'PKT_ID'
         0,  # 'FROM_NODE'
         0,  # 'TO_NODE'
-        0,  # 'PKT_TYPE'
+        pkt_type,  # 'PKT_TYPE'
         len(packet.raw),  # 'PKT_SIZE'
         0,  # 'FLAGS'
         0,  # 'FID'
         0,  # 'SEQ_NUMBER'
         self.packet_count,  # 'NUMBER_OF_PKT'
         len(packet.raw),  # 'NUMBER_OF_BYTE'
-        0,
-        0,
-        # int(ipaddress.ip_address(node_name_from)),  # 'NODE_NAME_FROM'
-        # int(ipaddress.ip_address(node_name_to)),  # 'NODE_NAME_TO'
+        0,  # 'NODE_NAME_FROM'
+        0,  # 'NODE_NAME_TO'
         0,  # 'PKT_IN'
         0,  # 'PKT_OUT'
         0,  # 'PKT_R'
