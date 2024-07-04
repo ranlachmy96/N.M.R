@@ -6,6 +6,10 @@ import joblib
 import time
 import ipaddress
 import subprocess
+from scapy.all import IP, TCP, UDP, Raw
+from datetime import datetime
+
+
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -25,41 +29,6 @@ class PacketSniffer:
         self.lock = threading.Lock()
         self.packet_count = 0
         self.packet_rate = 0
-        self.byte_count = 0
-        self.packet_id = 123456
-
-    def map_protocol(self, protocol):
-        # Define a dictionary to map protocols to types
-        protocol_map = {
-            'TCP': '0',
-            'UDP': '1',
-            'CBR': '2',
-        }
-
-        # Use the dictionary to map the protocol to a type
-        # If the protocol is not in the dictionary, return 'PING' as a default type
-        return protocol_map.get(protocol, '3')
-
-    def map_ip_to_node(self, ip_address):
-        # Define a dictionary to map IP addresses to node names
-        ip_node_map = {
-            '192.168.1.1': 'Switch1',
-            '192.168.1.2': 'Router',
-            '192.168.1.3': 'server1',
-            # Add more mappings as needed
-        }
-
-        # Use the dictionary to map the IP address to a node name
-        # If the IP address is not in the dictionary, return the IP address as a default node name
-        return ip_node_map.get(ip_address, ip_address)
-
-    def calculate_average_packet_size(self):
-        # Avoid division by zero
-        if self.packet_count == 0:
-            return 0
-        return self.byte_count / self.packet_count
-
-    import ipaddress
 
     def is_bogon(self,ip):
         try:
@@ -79,14 +48,10 @@ class PacketSniffer:
                     else:
                         break
                 if packet:
-                    self.packet_id += 1
-                    self.packet_count += 1
-                    self.byte_count += len(packet.raw)
                     current_time = time.time()
                     elapsed_time = current_time - start_time
 
                     if elapsed_time >=1:
-                        self.byte_count = self.byte_count / elapsed_time
                         self.packet_rate = self.packet_count / elapsed_time
                         logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
 
@@ -95,6 +60,7 @@ class PacketSniffer:
 
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
+                    print(features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1:  # Assuming '1' indicates an anomaly
@@ -117,46 +83,103 @@ class PacketSniffer:
 
     def extract_features(self, packet):
         # Extract relevant features from the packet for the model
-        # This function should be customized based on your feature extraction needs
-        # Convert IP addresses to integers
-        src_addr = int(ipaddress.ip_address(packet.src_addr))
-        dst_addr = int(ipaddress.ip_address(packet.dst_addr))
-        pkt_type = self.map_protocol(packet.protocol)  # Map the protocol to a type
-        node_name_from = self.map_ip_to_node(packet.src_addr)
-        node_name_to = self.map_ip_to_node(packet.dst_addr)
-        avg_packet_size = self.calculate_average_packet_size()
+        features = {}
+        featuress = []
 
-        features = [
-        src_addr,  # 'SRC_ADD'
-        dst_addr,  # 'DES_ADD'
-        self.packet_id,  # 'PKT_ID'
-        0,  # 'FROM_NODE'
-        0,  # 'TO_NODE'
-        pkt_type,  # 'PKT_TYPE'
-        len(packet.raw),  # 'PKT_SIZE'
-        0,  # 'FLAGS'
-        0,  # 'FID'
-        0,  # 'SEQ_NUMBER'
-        self.packet_count,  # 'NUMBER_OF_PKT'
-        len(packet.raw),  # 'NUMBER_OF_BYTE'
-        0,  # 'NODE_NAME_FROM'
-        0,  # 'NODE_NAME_TO'
-        0,  # 'PKT_IN'
-        0,  # 'PKT_OUT'
-        0,  # 'PKT_R'
-        0,  # 'PKT_DELAY_NODE'
-        self.packet_rate,  # 'PKT_RATE'
-        self.byte_count,  # 'BYTE_RATE'
-        avg_packet_size,  # 'PKT_AVG_SIZE'
-        0,  # 'UTILIZATION'
-        0,  # 'PKT_DELAY'
-        0,  # 'PKT_SEND_TIME'
-        0,  # 'PKT_RESEVED_TIME'
-        # packet,  # 'FIRST_PKT_SENT'
-        0,  # 'LAST_PKT_RESEVED'
-        0   # 'PKT_CLASS'
-        ]
-        return features
+        PKT_TYPE_MAPPING = {
+            'tcp': 1,
+            'udp': 2,
+            'ack': 3,
+            'cbr': 4,
+            'ping': 5
+        }
+
+        FLAGS_MAPPING = {
+            '---A---': 1,
+            '-------': 0
+        }
+
+        NODE_NAME_MAPPING = {name: i for i, name in enumerate([
+            'Switch1', 'Router', 'server1', 'router', 'clien-4', 'client-2', 'Switch2', 'client-5', 'clien-9',
+            'clien-2',
+            'clien-1', 'clien-14', 'clien-5', 'clien-11', 'clien-13', 'clien-0', 'switch1', 'client-4', 'clienthttp',
+            'clien-7', 'clien-19', 'client-14', 'clien-12', 'clien-8', 'clien-15', 'webserverlistin', 'client-18',
+            'client-1', 'switch2', 'clien-6', 'client-10', 'client-7', 'webcache', 'clien-10', 'client-15', 'clien-3',
+            'client-17', 'client-16', 'clien-17', 'clien-18', 'client-12', 'client-8', 'client-0', 'clien-16',
+            'client-13',
+            'client-11', 'client-6', 'client-3', 'client-9', 'client-19', 'http_client'
+        ])}
+
+        scapy_packet = IP(packet.raw)
+
+        features['SRC_ADD'] = int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16)
+        features['DES_ADD'] = int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16)
+
+        if scapy_packet.haslayer(TCP) or scapy_packet.haslayer(UDP):
+            transport_layer = scapy_packet[TCP] if scapy_packet.haslayer(TCP) else scapy_packet[UDP]
+            featuress = [
+                int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16),
+                int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16),
+                scapy_packet.id,
+                int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16),
+                int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16),
+                PKT_TYPE_MAPPING.get(transport_layer.name.lower(), 0),
+                len(packet.raw),
+                FLAGS_MAPPING.get(str(transport_layer.flags), 0) if scapy_packet.haslayer(TCP) else 0,
+                0,
+                transport_layer.seq if scapy_packet.haslayer(TCP) else 0,
+                1,
+                len(packet.raw),
+                NODE_NAME_MAPPING.get(scapy_packet.src, 0),
+                NODE_NAME_MAPPING.get(scapy_packet.dst, 0),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                len(packet.raw),
+                0,
+                0,
+                datetime.now().timestamp(),
+                datetime.now().timestamp(),
+                datetime.now().timestamp(),
+                datetime.now().timestamp()
+            ]
+
+            features['FROM_NODE'] = int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16)
+            features['TO_NODE'] = int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16)
+            features['PKT_ID'] = scapy_packet.id
+            features['PKT_TYPE'] = PKT_TYPE_MAPPING.get(transport_layer.name.lower(), 0)
+            features['PKT_SIZE'] = len(packet.raw)
+            features['FLAGS'] = FLAGS_MAPPING.get(str(transport_layer.flags), 0) if scapy_packet.haslayer(TCP) else 0
+            features['FID'] = 0
+            features['SEQ_NUMBER'] = transport_layer.seq if scapy_packet.haslayer(TCP) else 0
+            features['NUMBER_OF_PKT'] = 1
+            features['NUMBER_OF_BYTE'] = len(packet.raw)
+            features['NODE_NAME_FROM'] = NODE_NAME_MAPPING.get(scapy_packet.src, 0)
+            features['NODE_NAME_TO'] = NODE_NAME_MAPPING.get(scapy_packet.dst, 0)
+            features['PKT_IN'] = 0
+            features['PKT_OUT'] = 0
+            features['PKT_R'] = 0
+            features['PKT_DELAY_NODE'] = 0
+            features['PKT_RATE'] = 0
+            features['BYTE_RATE'] = 0
+            features['PKT_AVG_SIZE'] = len(packet.raw)
+            features['UTILIZATION'] = 0
+            features['PKT_DELAY'] = 0
+            features['PKT_SEND_TIME'] = datetime.now().timestamp()
+            features['PKT_RESEVED_TIME'] = datetime.now().timestamp()
+            features['FIRST_PKT_SENT'] = datetime.now().timestamp()
+            features['LAST_PKT_RESEVED'] = datetime.now().timestamp()
+
+        return featuress
+            # [features.get(key, 0) for key in [
+        #     'SRC_ADD', 'DES_ADD', 'PKT_ID', 'FROM_NODE', 'TO_NODE', 'PKT_TYPE', 'PKT_SIZE', 'FLAGS', 'FID',
+        #     'SEQ_NUMBER', 'NUMBER_OF_PKT', 'NUMBER_OF_BYTE', 'NODE_NAME_FROM', 'NODE_NAME_TO', 'PKT_IN', 'PKT_OUT',
+        #     'PKT_R', 'PKT_DELAY_NODE', 'PKT_RATE', 'BYTE_RATE', 'PKT_AVG_SIZE', 'UTILIZATION', 'PKT_DELAY',
+        #     'PKT_SEND_TIME', 'PKT_RESEVED_TIME', 'FIRST_PKT_SENT', 'LAST_PKT_RESEVED'
+        # ]]
 
     def start_sniffing(self):
         try:
