@@ -7,6 +7,7 @@ import time
 import ipaddress
 import subprocess
 from datetime import datetime
+import random
 
 
 
@@ -59,7 +60,6 @@ class PacketSniffer:
 
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
-                    print(features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1:  # Assuming '1' indicates an anomaly
@@ -85,11 +85,11 @@ class PacketSniffer:
         # features = []
 
         PKT_TYPE_MAPPING = {
-            'tcp': 1,
-            'udp': 2,
-            'ack': 3,
-            'cbr': 4,
-            'ping': 5
+            'TCP': 1,
+            'UDP': 2,
+            'ACK': 3,
+            'CBR': 4,
+            'PING': 5
         }
 
         FLAGS_MAPPING = {
@@ -105,21 +105,23 @@ class PacketSniffer:
         pkt_type = PKT_TYPE_MAPPING.get(packet.protocol, 0)
 
         # Get packet size
-        pkt_size = packet.payload_length
+        pkt_size = len(packet.payload)
 
         # Get TCP flags if the packet is TCP
         flags = 0
-        if packet.is_tcp:
+        if packet.protocol == 'TCP':
             flags = FLAGS_MAPPING.get(packet.tcp_header.flags, 0)
 
         # Get sequence number if the packet is TCP
-        seq_number = packet.tcp_header.seq_num if packet.is_tcp else 0
+        seq_number = packet.tcp_header.seq_num if packet.protocol == 'TCP' else 0
+
+        packet_id = ''.join(random.choice('123456789') for _ in range(2))
 
         # Build the features list
         features = [
             src_addr,
             dst_addr,
-            packet.packet_id,
+            packet_id,
             src_addr,
             dst_addr,
             pkt_type,
@@ -143,7 +145,7 @@ class PacketSniffer:
             datetime.now().timestamp(),
             datetime.now().timestamp(),
             datetime.now().timestamp(),
-            datetime.now().timestamp()
+            datetime.now().timestamp(),
         ]
 
         return features
