@@ -69,6 +69,7 @@ class PacketSniffer:
                         global current_port  # Replace with the new port you want to use
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
+                        self.sniff_port = current_port
                     # if self.is_bogon(packet.src_addr):
                     #     logging.warning(f"Packet from {packet.src_addr}:{packet.src_port} is a bogon address.")
                     else:

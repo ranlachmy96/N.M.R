@@ -37,15 +37,16 @@ exports.reportsController = {
     // report.reportId = ++counter
     try {
       if (Object.keys(req.body).length === 0) throw new BadRequestError('create')
-      const { name, location, deathCount, damage } = report
-      if (!name || !location || !deathCount || !damage) throw new PropertyNotFoundError('report - missing arguments')
+      const { email } = report
+      if (!email) throw new PropertyNotFoundError('report - missing arguments')
       const result = {
         status: 201,
         message: '',
         data: await createReport(report)
       }
-      res.status(result.status)
-      res.json(result.message || result.data)
+      // res.status(result.status)
+      // res.json(result.message || result.data)
+      res.redirect('/')
     } catch (error) {
       next(error)
     }

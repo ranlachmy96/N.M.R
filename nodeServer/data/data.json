@@ -1,39 +1,46 @@
 {
-    "reports": [
-        {
-            "id": 1,
-            "name": "Hurricane",
-            "location": "Florida",
-            "deathCount": 10,
-            "damage": "Big"
-        },
-        {
-            "id": 2,
-            "name": "Earthquake",
-            "location": "Los Angeles",
-            "deathCount": 129,
-            "damage": "Big"
-        },
-        {
-            "id": 3,
-            "name": "Tornado",
-            "location": "Kansas",
-            "deathCount": 2,
-            "damage": "Small"
-        },
-        {
-            "id": 4,
-            "name": "Tsunami",
-            "location": "Japan",
-            "deathCount": 1000,
-            "damage": "Huge"
-        },
-        {
-            "id": 5,
-            "name": "Volcano",
-            "location": "Hawaii",
-            "deathCount": 0,
-            "damage": "None"
-        }
-    ]
+  "reports": [
+    {
+      "id": 1,
+      "name": "Hurricane",
+      "location": "Florida",
+      "deathCount": 10,
+      "damage": "Big"
+    },
+    {
+      "id": 2,
+      "name": "Earthquake",
+      "location": "Los Angeles",
+      "deathCount": 129,
+      "damage": "Big"
+    },
+    {
+      "id": 3,
+      "name": "Tornado",
+      "location": "Kansas",
+      "deathCount": 2,
+      "damage": "Small"
+    },
+    {
+      "id": 4,
+      "name": "Tsunami",
+      "location": "Japan",
+      "deathCount": 1000,
+      "damage": "Huge"
+    },
+    {
+      "id": 5,
+      "name": "Volcano",
+      "location": "Hawaii",
+      "deathCount": 0,
+      "damage": "None"
+    },
+    {
+      "id": 6,
+      "name": "Flood",
+      "location": "New Orleans",
+      "deathCount": 50,
+      "damage": "Medium"
+    }
+  ]
 }
