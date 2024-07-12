@@ -30,11 +30,12 @@ class PacketSniffer:
         self.packet_count = 0
         self.packet_rate = 0
 
-    def is_bogon(self,ip):
+    def is_bogon(self, ip):
         try:
-            return (ipaddress.ip_address(ip).is_private or
-                    ipaddress.ip_address(ip).is_reserved or
-                    ipaddress.ip_address(ip).is_multicast)
+            return (not ipaddress.ip_address(ip).is_loopback and
+                    not ipaddress.ip_address(ip).is_private and
+                    (ipaddress.ip_address(ip).is_reserved or
+                     ipaddress.ip_address(ip).is_multicast))
         except ValueError:
             return False
 
@@ -60,9 +61,10 @@ class PacketSniffer:
 
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
+                    # print(packet)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
-                    if prediction == 1:  # Assuming '1' indicates an anomaly
+                    if prediction == 1 or self.is_bogon(packet.src_addr):  # Assuming '1' indicates an anomaly
                         logging.warning(f"Anomaly detected from {packet.src_addr}:{packet.src_port}")
 
                         # Additional logic to handle the anomaly, e.g., port changing.
@@ -70,8 +72,8 @@ class PacketSniffer:
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
                         self.sniff_port = current_port
-                    # if self.is_bogon(packet.src_addr):
-                    #     logging.warning(f"Packet from {packet.src_addr}:{packet.src_port} is a bogon address.")
+                    if self.is_bogon(packet.src_addr):
+                        logging.warning(f"Packet from {packet.src_addr}:{packet.src_port} is a bogon address.")
                     else:
                         logging.info(f"Packet from {packet.src_addr}:{packet.src_port} is normal.")
                     # Log specific details of the packet
