@@ -33,6 +33,7 @@ def rudy_attack(target_ip, target_port, target_path, total_duration):
 
 def start_attack_thread(target_ip, target_port, target_path, total_duration):
     thread = threading.Thread(target=rudy_attack, args=(target_ip, target_port, target_path, total_duration))
+    print(f"Starting thread for target {target_ip}:{target_port}")
     thread.start()
     return thread
 
