@@ -6,7 +6,6 @@ import joblib
 import time
 import ipaddress
 import subprocess
-from scapy.all import IP, TCP, UDP, Raw
 from datetime import datetime
 
 
@@ -83,8 +82,7 @@ class PacketSniffer:
 
     def extract_features(self, packet):
         # Extract relevant features from the packet for the model
-        features = {}
-        featuress = []
+        # features = []
 
         PKT_TYPE_MAPPING = {
             'tcp': 1,
@@ -99,87 +97,56 @@ class PacketSniffer:
             '-------': 0
         }
 
-        NODE_NAME_MAPPING = {name: i for i, name in enumerate([
-            'Switch1', 'Router', 'server1', 'router', 'clien-4', 'client-2', 'Switch2', 'client-5', 'clien-9',
-            'clien-2',
-            'clien-1', 'clien-14', 'clien-5', 'clien-11', 'clien-13', 'clien-0', 'switch1', 'client-4', 'clienthttp',
-            'clien-7', 'clien-19', 'client-14', 'clien-12', 'clien-8', 'clien-15', 'webserverlistin', 'client-18',
-            'client-1', 'switch2', 'clien-6', 'client-10', 'client-7', 'webcache', 'clien-10', 'client-15', 'clien-3',
-            'client-17', 'client-16', 'clien-17', 'clien-18', 'client-12', 'client-8', 'client-0', 'clien-16',
-            'client-13',
-            'client-11', 'client-6', 'client-3', 'client-9', 'client-19', 'http_client'
-        ])}
+        # Convert IP addresses to integers
+        src_addr = int(ipaddress.ip_address(packet.src_addr).packed.hex(), 16)
+        dst_addr = int(ipaddress.ip_address(packet.dst_addr).packed.hex(), 16)
 
-        scapy_packet = IP(packet.raw)
+        # Get packet type
+        pkt_type = PKT_TYPE_MAPPING.get(packet.protocol, 0)
 
-        features['SRC_ADD'] = int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16)
-        features['DES_ADD'] = int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16)
+        # Get packet size
+        pkt_size = packet.payload_length
 
-        if scapy_packet.haslayer(TCP) or scapy_packet.haslayer(UDP):
-            transport_layer = scapy_packet[TCP] if scapy_packet.haslayer(TCP) else scapy_packet[UDP]
-            featuress = [
-                int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16),
-                int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16),
-                scapy_packet.id,
-                int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16),
-                int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16),
-                PKT_TYPE_MAPPING.get(transport_layer.name.lower(), 0),
-                len(packet.raw),
-                FLAGS_MAPPING.get(str(transport_layer.flags), 0) if scapy_packet.haslayer(TCP) else 0,
-                0,
-                transport_layer.seq if scapy_packet.haslayer(TCP) else 0,
-                1,
-                len(packet.raw),
-                NODE_NAME_MAPPING.get(scapy_packet.src, 0),
-                NODE_NAME_MAPPING.get(scapy_packet.dst, 0),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                len(packet.raw),
-                0,
-                0,
-                datetime.now().timestamp(),
-                datetime.now().timestamp(),
-                datetime.now().timestamp(),
-                datetime.now().timestamp()
-            ]
+        # Get TCP flags if the packet is TCP
+        flags = 0
+        if packet.is_tcp:
+            flags = FLAGS_MAPPING.get(packet.tcp_header.flags, 0)
 
-            features['FROM_NODE'] = int(ipaddress.ip_address(scapy_packet.src).packed.hex(), 16)
-            features['TO_NODE'] = int(ipaddress.ip_address(scapy_packet.dst).packed.hex(), 16)
-            features['PKT_ID'] = scapy_packet.id
-            features['PKT_TYPE'] = PKT_TYPE_MAPPING.get(transport_layer.name.lower(), 0)
-            features['PKT_SIZE'] = len(packet.raw)
-            features['FLAGS'] = FLAGS_MAPPING.get(str(transport_layer.flags), 0) if scapy_packet.haslayer(TCP) else 0
-            features['FID'] = 0
-            features['SEQ_NUMBER'] = transport_layer.seq if scapy_packet.haslayer(TCP) else 0
-            features['NUMBER_OF_PKT'] = 1
-            features['NUMBER_OF_BYTE'] = len(packet.raw)
-            features['NODE_NAME_FROM'] = NODE_NAME_MAPPING.get(scapy_packet.src, 0)
-            features['NODE_NAME_TO'] = NODE_NAME_MAPPING.get(scapy_packet.dst, 0)
-            features['PKT_IN'] = 0
-            features['PKT_OUT'] = 0
-            features['PKT_R'] = 0
-            features['PKT_DELAY_NODE'] = 0
-            features['PKT_RATE'] = 0
-            features['BYTE_RATE'] = 0
-            features['PKT_AVG_SIZE'] = len(packet.raw)
-            features['UTILIZATION'] = 0
-            features['PKT_DELAY'] = 0
-            features['PKT_SEND_TIME'] = datetime.now().timestamp()
-            features['PKT_RESEVED_TIME'] = datetime.now().timestamp()
-            features['FIRST_PKT_SENT'] = datetime.now().timestamp()
-            features['LAST_PKT_RESEVED'] = datetime.now().timestamp()
+        # Get sequence number if the packet is TCP
+        seq_number = packet.tcp_header.seq_num if packet.is_tcp else 0
 
-        return featuress
-            # [features.get(key, 0) for key in [
-        #     'SRC_ADD', 'DES_ADD', 'PKT_ID', 'FROM_NODE', 'TO_NODE', 'PKT_TYPE', 'PKT_SIZE', 'FLAGS', 'FID',
-        #     'SEQ_NUMBER', 'NUMBER_OF_PKT', 'NUMBER_OF_BYTE', 'NODE_NAME_FROM', 'NODE_NAME_TO', 'PKT_IN', 'PKT_OUT',
-        #     'PKT_R', 'PKT_DELAY_NODE', 'PKT_RATE', 'BYTE_RATE', 'PKT_AVG_SIZE', 'UTILIZATION', 'PKT_DELAY',
-        #     'PKT_SEND_TIME', 'PKT_RESEVED_TIME', 'FIRST_PKT_SENT', 'LAST_PKT_RESEVED'
-        # ]]
+        # Build the features list
+        features = [
+            src_addr,
+            dst_addr,
+            packet.packet_id,
+            src_addr,
+            dst_addr,
+            pkt_type,
+            pkt_size,
+            flags,
+            0,
+            seq_number,
+            1,
+            pkt_size,
+            src_addr,
+            dst_addr,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            pkt_size,
+            0,
+            0,
+            datetime.now().timestamp(),
+            datetime.now().timestamp(),
+            datetime.now().timestamp(),
+            datetime.now().timestamp()
+        ]
+
+        return features
 
     def start_sniffing(self):
         try:
