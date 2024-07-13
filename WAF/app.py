@@ -40,8 +40,6 @@ class PacketSniffer:
         print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
 
         def packet_handler(packet):
-            # print("Packet received:", packet)  # Debug print to show the packet has been received
-
             start_time = time.time()
             with self.lock:
                 self.packet_count += 1
