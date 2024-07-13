@@ -31,8 +31,8 @@ def list_interfaces():
     List all available network interfaces using Scapy.
     """
     print("Available interfaces:")
-    for index, iface_name in enumerate(conf.ifaces):
-        print(f"Index: {index}, Name: {iface_name}")
+    for index, iface in enumerate(conf.ifaces):
+        print(f"Index: {index}, Name: {conf.ifaces[iface].name}")
 
 
 if __name__ == "__main__":
