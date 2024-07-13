@@ -1,6 +1,5 @@
 from flask import Flask, jsonify
 import threading
-import pydivert
 import logging
 import joblib
 import time
@@ -8,8 +7,7 @@ import ipaddress
 import subprocess
 from datetime import datetime
 import random
-
-
+from scapy.all import sniff, TCP, IP
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -25,7 +23,6 @@ class PacketSniffer:
     def __init__(self, sniff_port):
         self.sniff_port = sniff_port
         self.running = True
-        self.w = None
         self.lock = threading.Lock()
         self.packet_count = 0
         self.packet_rate = 0
@@ -40,53 +37,53 @@ class PacketSniffer:
             return False
 
     def sniff_packets(self):
-        start_time = time.time()
-        while self.running:
-            try:
-                with self.lock:
-                    if self.w is not None:
-                        packet = self.w.recv()
-                    else:
-                        break
-                if packet:
-                    current_time = time.time()
-                    elapsed_time = current_time - start_time
+        print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
 
-                    if elapsed_time >=1:
-                        self.packet_rate = self.packet_count / elapsed_time
-                        logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
+        def packet_handler(packet):
+            # print("Packet received:", packet)  # Debug print to show the packet has been received
 
-                        self.packet_count = 0
-                        start_time = current_time
+            start_time = time.time()
+            with self.lock:
+                self.packet_count += 1
+                current_time = time.time()
+                elapsed_time = current_time - start_time
+
+                if elapsed_time >= 1:
+                    self.packet_rate = self.packet_count / elapsed_time
+                    logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
+
+                    self.packet_count = 0
+                    start_time = current_time
+
+                # Log packet details
+                if IP in packet and TCP in packet:
+                    logging.info(f"Sniffed packet: {packet.summary()}")
 
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
-                    # print(packet)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
-                    if prediction == 1 or self.is_bogon(packet.src_addr):  # Assuming '1' indicates an anomaly
-                        logging.warning(f"Anomaly detected from {packet.src_addr}:{packet.src_port}")
+                    if prediction == 1 or self.is_bogon(packet[IP].src):
+                        logging.warning(f"Anomaly detected from {packet[IP].src}:{packet[TCP].sport}")
 
                         # Additional logic to handle the anomaly, e.g., port changing.
-                        global current_port  # Replace with the new port you want to use
+                        global current_port
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
                         self.sniff_port = current_port
-                    if self.is_bogon(packet.src_addr):
-                        logging.warning(f"Packet from {packet.src_addr}:{packet.src_port} is a bogon address.")
+                    if self.is_bogon(packet[IP].src):
+                        logging.warning(f"Packet from {packet[IP].src}:{packet[TCP].sport} is a bogon address.")
                     else:
-                        logging.info(f"Packet from {packet.src_addr}:{packet.src_port} is normal.")
+                        logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} is normal.")
                     # Log specific details of the packet
-                    logging.info(f"Packet from {packet.src_addr}:{packet.src_port} to {packet.dst_addr}:{packet.dst_port}")
-                    logging.info(f"Packet length: {len(packet.raw)}")
-                    logging.info(f"Packet data: {packet.payload}")
-            except Exception as e:
-                logging.error(f"Error handling packet: {e}")
+                    logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} to {packet[IP].dst}:{packet[TCP].dport}")
+                    logging.info(f"Packet length: {len(packet)}")
+                    logging.info(f"Packet data: {packet[TCP].payload}")
+
+        # Start sniffing packets with a general filter
+        sniff(prn=packet_handler, store=0, stop_filter=lambda x: not self.running)
 
     def extract_features(self, packet):
-        # Extract relevant features from the packet for the model
-        # features = []
-
         PKT_TYPE_MAPPING = {
             'TCP': 1,
             'UDP': 2,
@@ -96,31 +93,20 @@ class PacketSniffer:
         }
 
         FLAGS_MAPPING = {
-            '---A---': 1,
-            '-------': 0
+            'A': 1,  # ACK flag
+            '': 0    # No flag
         }
 
-        # Convert IP addresses to integers
-        src_addr = int(ipaddress.ip_address(packet.src_addr).packed.hex(), 16)
-        dst_addr = int(ipaddress.ip_address(packet.dst_addr).packed.hex(), 16)
-
-        # Get packet type
-        pkt_type = PKT_TYPE_MAPPING.get(packet.protocol, 0)
-
-        # Get packet size
-        pkt_size = len(packet.payload)
-
-        # Get TCP flags if the packet is TCP
+        src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
+        dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
+        pkt_type = PKT_TYPE_MAPPING.get(packet[IP].proto, 0)
+        pkt_size = len(packet[IP].payload)
         flags = 0
-        if packet.protocol == 'TCP':
-            flags = FLAGS_MAPPING.get(packet.tcp_header.flags, 0)
-
-        # Get sequence number if the packet is TCP
-        seq_number = packet.tcp_header.seq_num if packet.protocol == 'TCP' else 0
-
+        if TCP in packet:
+            flags = FLAGS_MAPPING.get(packet[TCP].flags, 0)
+        seq_number = packet[TCP].seq if TCP in packet else 0
         packet_id = ''.join(random.choice('123456789') for _ in range(2))
 
-        # Build the features list
         features = [
             src_addr,
             dst_addr,
@@ -153,23 +139,8 @@ class PacketSniffer:
 
         return features
 
-    def start_sniffing(self):
-        try:
-            with self.lock:
-                filter_str = f"tcp.DstPort == {self.sniff_port} and inbound"
-                self.w = pydivert.WinDivert(filter_str)
-                self.w.open()
-                logging.info("WinDivert handle opened.")
-        except Exception as e:
-            logging.error(f"Error opening WinDivert handle: {e}")
-        finally:
-            if self.w:
-                self.sniff_packets()
-                self.w.close()
-                logging.info("WinDivert handle closed.")
-
     def get_new_thread(self):
-        return threading.Thread(target=self.start_sniffing, daemon=True)
+        return threading.Thread(target=self.sniff_packets, daemon=True)
 
     def stop_sniffing(self):
         self.running = False
@@ -194,12 +165,6 @@ if __name__ == '__main__':
 
         # Start Flask application
         app.run(debug=True, host='0.0.0.0', port=5000)
-
     finally:
         # Ensure packet sniffing is stopped when Flask application stops
         sniffer.stop_sniffing()
-
-
-###############################################################################
-
-
