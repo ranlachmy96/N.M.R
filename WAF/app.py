@@ -27,6 +27,7 @@ class PacketSniffer:
         self.lock = threading.Lock()
         self.packet_count = 0
         self.packet_rate = 0
+        self.current_time = 0
 
     def is_bogon(self, ip):
         try:
@@ -44,15 +45,15 @@ class PacketSniffer:
             start_time = time.time()
             with self.lock:
                 self.packet_count += 1
-                current_time = time.time()
-                elapsed_time = current_time - start_time
+                self.current_time = time.time()
+                elapsed_time = self.current_time - start_time
 
                 if elapsed_time >= 1:
                     self.packet_rate = self.packet_count / elapsed_time
                     logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
 
                     self.packet_count = 0
-                    start_time = current_time
+                    start_time = self.current_time
 
                 # Log packet details
                 if IP in packet and TCP in packet:
@@ -60,6 +61,7 @@ class PacketSniffer:
 
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
+                    print(features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1 or self.is_bogon(packet[IP].src):
@@ -132,7 +134,7 @@ class PacketSniffer:
             flags,
             0,
             seq_number,
-            1,
+            self.packet_count,
             pkt_size,
             src_addr,
             dst_addr,
@@ -140,14 +142,14 @@ class PacketSniffer:
             0,
             0,
             0,
-            0,
+            self.packet_rate,
             0,
             pkt_size,
             0,
             0,
+            self.current_time,
             datetime.now().timestamp(),
-            datetime.now().timestamp(),
-            datetime.now().timestamp(),
+            self.current_time,
             datetime.now().timestamp(),
         ]
 
