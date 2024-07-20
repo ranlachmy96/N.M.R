@@ -7,7 +7,7 @@ import ipaddress
 import subprocess
 from datetime import datetime
 import random
-from scapy.all import sniff, TCP, IP
+from scapy.all import sniff, TCP, IP, get_if_list, get_if_hwaddr
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -17,6 +17,7 @@ app = Flask(__name__)
 model = joblib.load('../anamolyDetector/model.joblib')
 scaler = joblib.load('../anamolyDetector/scaler.joblib')
 current_port = 3000
+
 
 # PacketSniffer class for sniffing packets
 class PacketSniffer:
@@ -74,12 +75,27 @@ class PacketSniffer:
                     else:
                         logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} is normal.")
                     # Log specific details of the packet
-                    logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} to {packet[IP].dst}:{packet[TCP].dport}")
+                    logging.info(
+                        f"Packet from {packet[IP].src}:{packet[TCP].sport} to {packet[IP].dst}:{packet[TCP].dport}")
                     logging.info(f"Packet length: {len(packet)}")
                     logging.info(f"Packet data: {packet[TCP].payload}")
 
-        # Start sniffing packets with a general filter
-        sniff(prn=packet_handler, store=0, stop_filter=lambda x: not self.running)
+        # List available interfaces and select the appropriate one
+        interfaces = get_if_list()
+
+        # Try to identify the loopback interface
+        loopback_interface = None
+        for iface in interfaces:
+            if "loopback" in iface.lower() or "npf_loopback" in iface.lower():
+                loopback_interface = iface
+                break
+
+        if loopback_interface is None:
+            print("Loopback interface not found. Please check your interfaces.")
+            return
+
+        # Start sniffing packets with a filter for localhost
+        sniff(prn=packet_handler, store=0, iface=loopback_interface, stop_filter=lambda x: not self.running)
 
     def extract_features(self, packet):
         PKT_TYPE_MAPPING = {
@@ -92,7 +108,7 @@ class PacketSniffer:
 
         FLAGS_MAPPING = {
             'A': 1,  # ACK flag
-            '': 0    # No flag
+            '': 0  # No flag
         }
 
         src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
@@ -143,8 +159,10 @@ class PacketSniffer:
     def stop_sniffing(self):
         self.running = False
 
+
 # Initialize PacketSniffer for port 3000 (Node's default port)
 sniffer = PacketSniffer(sniff_port=current_port)
+
 
 # Endpoint for handling requests
 @app.route('/', methods=['GET', 'POST'])
@@ -153,6 +171,7 @@ def index():
     if blocked:
         return jsonify({"message": "Request blocked by WAF"}), 403
     return jsonify({"message": "Request allowed"}), 200
+
 
 # Main function to start Flask app and packet sniffing
 if __name__ == '__main__':
