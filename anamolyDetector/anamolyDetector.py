@@ -55,13 +55,6 @@ y_pred = model.predict(x_test)
 y_pred = pd.DataFrame(y_pred)
 print((accuracy_score(y_test, y_pred))*100, '%')
 
-# columns = ['SRC_ADD', 'DES_ADD', 'PKT_ID', 'FROM_NODE', 'TO_NODE',
-#            'PKT_TYPE', 'PKT_SIZE', 'FLAGS', 'FID', 'SEQ_NUMBER',
-#            'NUMBER_OF_PKT', 'NUMBER_OF_BYTE', 'NODE_NAME_FROM', 'NODE_NAME_TO',
-#            'PKT_IN', 'PKT_OUT', 'PKT_R', 'PKT_DELAY_NODE', 'PKT_RATE',
-#            'BYTE_RATE', 'PKT_AVG_SIZE', 'UTILIZATION', 'PKT_DELAY', 'PKT_SEND_TIME',
-#            'PKT_RESEVED_TIME', 'FIRST_PKT_SENT', 'LAST_PKT_RESEVED', 'PKT_CLASS']
-
 
 
 

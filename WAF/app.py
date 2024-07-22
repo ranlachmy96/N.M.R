@@ -138,15 +138,8 @@ class PacketSniffer:
             '': 0  # No flag
         }
 
-        src_addr_parts = packet[IP].src.split('.')
-        src_addr = int(src_addr_parts[0]) << 24 | int(src_addr_parts[1]) << 16 | int(src_addr_parts[2]) << 8 | int(
-            src_addr_parts[3])
-
-        dst_addr_parts = packet[IP].dst.split('.')
-        dst_addr = int(dst_addr_parts[0]) << 24 | int(dst_addr_parts[1]) << 16 | int(dst_addr_parts[2]) << 8 | int(
-            dst_addr_parts[3])
-        # src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
-        # dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
+        src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
+        dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
         pkt_type = PKT_TYPE_MAPPING.get(packet[IP].proto, 0)
         pkt_size = len(packet[IP].payload)
         flags = 0
@@ -154,6 +147,7 @@ class PacketSniffer:
             flags = FLAGS_MAPPING.get(packet[TCP].flags, 0)
         seq_number = packet[TCP].seq if TCP in packet else 0
         packet_id = ''.join(random.choice('123456789') for _ in range(2))
+        fid = ''.join(random.choice('123456789') for _ in range(2))
         time_diff = time.time() - self.current_time
         time_diff = time_diff * 100000
         formatted_time = "{:.6f}".format(time_diff)
@@ -173,7 +167,7 @@ class PacketSniffer:
             pkt_type,
             pkt_size,
             flags,
-            0,
+            fid,
             seq_number,
             self.packet_count,
             pkt_size,
@@ -189,8 +183,8 @@ class PacketSniffer:
             0,
             formatted_time,
             formatted_now,
-            formatted_now,
             formatted_time,
+            formatted_now,
             suspected_attack,
         ]
 
