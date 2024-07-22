@@ -8,6 +8,7 @@ import subprocess
 from datetime import datetime
 import random
 from scapy.all import sniff, TCP, IP, get_if_list, get_if_hwaddr
+from scapy.layers.inet import ICMP, UDP
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -42,6 +43,27 @@ class PacketSniffer:
         print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
 
         def packet_handler(packet):
+            packet_type = "Unknown"
+            src_addr = "N/A"
+            dst_addr = "N/A"
+            sport = "N/A"
+            dport = "N/A"
+
+            if IP in packet:
+                packet_type = "IP"
+                src_addr = packet[IP].src
+                dst_addr = packet[IP].dst
+                if TCP in packet:
+                    sport = packet[TCP].sport
+                    dport = packet[TCP].dport
+                    packet_type += "/TCP"
+                elif UDP in packet:
+                    sport = packet[UDP].sport
+                    dport = packet[UDP].dport
+                    packet_type += "/UDP"
+            elif ICMP in packet:
+                packet_type = "ICMP"
+
             start_time = time.time()
             with self.lock:
                 self.packet_count += 1
@@ -56,31 +78,34 @@ class PacketSniffer:
                     start_time = self.current_time
 
                 # Log packet details
-                if IP in packet and TCP in packet:
-                    logging.info(f"Sniffed packet: {packet.summary()}")
+                logging.info(f"Sniffed packet: {packet.summary()}")
 
+
+
+                if IP in packet:
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
-                    print(features)
+                    print("features:", features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1 or self.is_bogon(packet[IP].src):
-                        logging.warning(f"Anomaly detected from {packet[IP].src}:{packet[TCP].sport}")
+                        logging.warning(f"Anomaly detected from {src_addr}")
 
                         # Additional logic to handle the anomaly, e.g., port changing.
                         global current_port
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
                         self.sniff_port = current_port
+
                     if self.is_bogon(packet[IP].src):
-                        logging.warning(f"Packet from {packet[IP].src}:{packet[TCP].sport} is a bogon address.")
+                        logging.warning(f"{packet_type} Packet from {src_addr} is a bogon address.")
                     else:
-                        logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} is normal.")
+                        logging.info(f"{packet_type} Packet from {src_addr} is normal.")
+
                     # Log specific details of the packet
-                    logging.info(
-                        f"Packet from {packet[IP].src}:{packet[TCP].sport} to {packet[IP].dst}:{packet[TCP].dport}")
-                    logging.info(f"Packet length: {len(packet)}")
-                    logging.info(f"Packet data: {packet[TCP].payload}")
+                    logging.info(f"{packet_type} Packet from {src_addr}:{sport} to {dst_addr}:{dport}")
+                logging.info(f"Packet length: {len(packet)}")
+                logging.info(f"Packet data: {packet.payload}")
 
         # List available interfaces and select the appropriate one
         interfaces = get_if_list()
@@ -96,7 +121,7 @@ class PacketSniffer:
             print("Loopback interface not found. Please check your interfaces.")
             return
 
-        # Start sniffing packets with a filter for localhost
+        # Start sniffing packets without a specific filter to capture all packets
         sniff(prn=packet_handler, store=0, iface=loopback_interface, stop_filter=lambda x: not self.running)
 
     def extract_features(self, packet):
@@ -113,8 +138,15 @@ class PacketSniffer:
             '': 0  # No flag
         }
 
-        src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
-        dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
+        src_addr_parts = packet[IP].src.split('.')
+        src_addr = int(src_addr_parts[0]) << 24 | int(src_addr_parts[1]) << 16 | int(src_addr_parts[2]) << 8 | int(
+            src_addr_parts[3])
+
+        dst_addr_parts = packet[IP].dst.split('.')
+        dst_addr = int(dst_addr_parts[0]) << 24 | int(dst_addr_parts[1]) << 16 | int(dst_addr_parts[2]) << 8 | int(
+            dst_addr_parts[3])
+        # src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
+        # dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
         pkt_type = PKT_TYPE_MAPPING.get(packet[IP].proto, 0)
         pkt_size = len(packet[IP].payload)
         flags = 0
@@ -122,6 +154,15 @@ class PacketSniffer:
             flags = FLAGS_MAPPING.get(packet[TCP].flags, 0)
         seq_number = packet[TCP].seq if TCP in packet else 0
         packet_id = ''.join(random.choice('123456789') for _ in range(2))
+        time_diff = time.time() - self.current_time
+        time_diff = time_diff * 100000
+        formatted_time = "{:.6f}".format(time_diff)
+        now = time.time() - self.current_time
+        formatted_now = "{:.6f}".format(now)
+        suspected_attack = 0  #normal
+
+        if packet.payload and len(packet.payload) > 60000:
+            suspected_attack = 1
 
         features = [
             src_addr,
@@ -146,11 +187,11 @@ class PacketSniffer:
             0,
             pkt_size,
             0,
-            0,
-            self.current_time,
-            datetime.now().timestamp(),
-            self.current_time,
-            datetime.now().timestamp(),
+            formatted_time,
+            formatted_now,
+            formatted_now,
+            formatted_time,
+            suspected_attack,
         ]
 
         return features
