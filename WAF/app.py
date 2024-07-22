@@ -8,6 +8,7 @@ import subprocess
 from datetime import datetime
 import random
 from scapy.all import sniff, TCP, IP, get_if_list, get_if_hwaddr
+from scapy.layers.inet import ICMP, UDP
 
 # Configure logging
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
@@ -42,6 +43,19 @@ class PacketSniffer:
         print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
 
         def packet_handler(packet):
+
+            packet_type = "Unknown"
+            if IP in packet:
+                packet_type = "IP"
+            elif ICMP in packet:
+                packet_type = "ICMP"
+            elif UDP in packet:
+                packet_type = "UDP"
+            elif TCP in packet:
+                packet_type = "TCP"
+            else:
+                packet_type = "Other"
+
             start_time = time.time()
             with self.lock:
                 self.packet_count += 1
@@ -56,31 +70,49 @@ class PacketSniffer:
                     start_time = self.current_time
 
                 # Log packet details
-                if IP in packet and TCP in packet:
-                    logging.info(f"Sniffed packet: {packet.summary()}")
+                logging.info(f"Sniffed packet: {packet.summary()}")
 
-                    # Extract features from packet for anomaly detection
-                    features = self.extract_features(packet)
-                    print(features)
-                    features = scaler.transform([features])
-                    prediction = model.predict(features)
-                    if prediction == 1 or self.is_bogon(packet[IP].src):
-                        logging.warning(f"Anomaly detected from {packet[IP].src}:{packet[TCP].sport}")
-
-                        # Additional logic to handle the anomaly, e.g., port changing.
-                        global current_port
-                        current_port += 1
-                        subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
-                        self.sniff_port = current_port
-                    if self.is_bogon(packet[IP].src):
-                        logging.warning(f"Packet from {packet[IP].src}:{packet[TCP].sport} is a bogon address.")
+                # Extract features from packet for anomaly detection
+                features = self.extract_features(packet)
+                # print(features)
+                features = scaler.transform([features])
+                prediction = model.predict(features)
+                if prediction == 1 or (IP in packet and self.is_bogon(packet[IP].src)):
+                    if IP in packet:
+                        src_addr = packet[IP].src
                     else:
-                        logging.info(f"Packet from {packet[IP].src}:{packet[TCP].sport} is normal.")
-                    # Log specific details of the packet
-                    logging.info(
-                        f"Packet from {packet[IP].src}:{packet[TCP].sport} to {packet[IP].dst}:{packet[TCP].dport}")
-                    logging.info(f"Packet length: {len(packet)}")
-                    logging.info(f"Packet data: {packet[TCP].payload}")
+                        src_addr = "N/A"
+                    logging.warning(f"Anomaly detected from {src_addr}")
+
+                    # Additional logic to handle the anomaly, e.g., port changing.
+                    global current_port
+                    current_port += 1
+                    subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
+                    self.sniff_port = current_port
+
+                if IP in packet and self.is_bogon(packet[IP].src):
+                    logging.warning(f"{packet_type} Packet from {packet[IP].src} is a bogon address.")
+                else:
+                    if IP in packet:
+                        logging.info(f"{packet_type} Packet from {packet[IP].src} is normal.")
+                    else:
+                        logging.info(f"{packet_type} Packet is normal.")
+
+                # Log specific details of the packet
+                if IP in packet:
+                    src_addr = packet[IP].src
+                    dst_addr = packet[IP].dst
+                    if TCP in packet:
+                        sport = packet[TCP].sport
+                        dport = packet[TCP].dport
+                    elif UDP in packet:
+                        sport = packet[UDP].sport
+                        dport = packet[UDP].dport
+                    else:
+                        sport = dport = "N/A"
+                    logging.info(f"{packet_type} Packet from {src_addr}:{sport} to {dst_addr}:{dport}")
+                logging.info(f"Packet length: {len(packet)}")
+                logging.info(f"Packet data: {packet.payload}")
 
         # List available interfaces and select the appropriate one
         interfaces = get_if_list()
@@ -96,7 +128,7 @@ class PacketSniffer:
             print("Loopback interface not found. Please check your interfaces.")
             return
 
-        # Start sniffing packets with a filter for localhost
+        # Start sniffing packets without a specific filter to capture all packets
         sniff(prn=packet_handler, store=0, iface=loopback_interface, stop_filter=lambda x: not self.running)
 
     def extract_features(self, packet):
