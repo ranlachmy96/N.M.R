@@ -1,115 +1,133 @@
+import threading
+import time
+import ipaddress
 from scapy.all import *
-from scapy.layers.dhcp import DHCP, BOOTP
-from scapy.layers.inet import UDP, IP
-from scapy.layers.l2 import Ether
+from scapy.layers.dhcp import *
+from scapy.layers.inet import *
+from scapy.layers.l2 import *
 
-# Configuration for the DHCP server
-server_ip = "192.168.1.1"  # IP address of the DHCP server
+# Configuration
+ip_range_start = "192.168.1.2"  # Change to your desired IP range start
+ip_range_end = "192.168.1.100"  # Change to your desired IP range end
 subnet_mask = "255.255.255.0"
-router = "192.168.1.1"
-dns_server = "8.8.8.8"
-pool_start = "192.168.1.100"
-pool_end = "192.168.1.200"
-leases = {}
+gateway = "192.168.1.254"  # Change to your network's gateway
+dns_server = "8.8.8.8"  # Change to your network's DNS server
+lease_time = 86400  # 1 day
 
-def ip_to_int(ip):
-    return int.from_bytes(socket.inet_aton(ip), byteorder='big')
+# Global variables
+binding_table = {}
+offered_ips = set()
 
-def int_to_ip(ip_int):
-    return socket.inet_ntoa(ip_int.to_bytes(4, byteorder='big'))
-
-def get_next_ip(pool_start, pool_end, leases):
-    start = ip_to_int(pool_start)
-    end = ip_to_int(pool_end)
+def get_next_available_ip():
+    start = int(ipaddress.IPv4Address(ip_range_start))
+    end = int(ipaddress.IPv4Address(ip_range_end))
     for ip_int in range(start, end + 1):
-        ip = int_to_ip(ip_int)
-        if ip not in leases.values():
-            return ip
+        ip_str = str(ipaddress.IPv4Address(ip_int))
+        if ip_str not in offered_ips:
+            return ip_str
     return None
 
-def handle_dhcp(packet):
-    if DHCP in packet and packet[DHCP].options[0][1] == 1:  # DHCP Discover
-        client_mac = packet[Ether].src
-        offer_ip = get_next_ip(pool_start, pool_end, leases)
-        if offer_ip:
-            leases[client_mac] = offer_ip
-            send_offer(packet, offer_ip)
-        else:
-            print("No available IP addresses in the pool.")
+def handle_dhcp_discover(pkt):
+    print(f"Received DHCP DISCOVER from {pkt[Ether].src}")
+    client_mac = pkt[Ether].src
+    offered_ip = get_next_available_ip()
+    if not offered_ip:
+        print("No available IPs to offer.")
+        return
+    
+    offered_ips.add(offered_ip)
+    binding_table[client_mac] = offered_ip
 
-    elif DHCP in packet and packet[DHCP].options[0][1] == 3:  # DHCP Request
-        client_mac = packet[Ether].src
-        requested_ip = packet[DHCP].options[2][1]
-        if requested_ip in leases.values():
-            send_ack(packet, requested_ip)
-        else:
-            send_nak(packet)
-
-def send_offer(packet, offer_ip):
-    offer_packet = Ether(dst="ff:ff:ff:ff:ff:ff", src=get_if_hwaddr(conf.iface)) / \
-                   IP(src=server_ip, dst="255.255.255.255") / \
-                   UDP(sport=67, dport=68) / \
-                   BOOTP(op=2, yiaddr=offer_ip, siaddr=server_ip, chaddr=packet[BOOTP].chaddr) / \
-                   DHCP(options=[("message-type", "offer"),
-                                 ("server_id", server_ip),
-                                 ("subnet_mask", subnet_mask),
-                                 ("router", router),
-                                 ("lease_time", 600),
-                                 ("renewal_time", 300),
-                                 ("rebinding_time", 450),
-                                 ("end")])
-    sendp(offer_packet, iface=conf.iface)
-
-def send_ack(packet, client_ip):
-    ack_packet = Ether(dst="ff:ff:ff:ff:ff:ff", src=get_if_hwaddr(conf.iface)) / \
-                 IP(src=server_ip, dst="255.255.255.255") / \
-                 UDP(sport=67, dport=68) / \
-                 BOOTP(op=2, yiaddr=client_ip, siaddr=server_ip, chaddr=packet[BOOTP].chaddr) / \
-                 DHCP(options=[("message-type", "ack"),
-                               ("server_id", server_ip),
+    offer_pkt = (Ether(src=get_if_hwaddr(conf.iface), dst=pkt[Ether].src) /
+                 IP(src="0.0.0.0", dst="255.255.255.255") /
+                 UDP(sport=67, dport=68) /
+                 BOOTP(op=2, yiaddr=offered_ip, siaddr=gateway, chaddr=pkt[BOOTP].chaddr) /
+                 DHCP(options=[("message-type", "offer"),
                                ("subnet_mask", subnet_mask),
-                               ("router", router),
-                               ("lease_time", 600),
-                               ("renewal_time", 300),
-                               ("rebinding_time", 450),
-                               ("end")])
-    sendp(ack_packet, iface=conf.iface)
+                               ("router", gateway),
+                               ("name_server", dns_server),
+                               ("lease_time", lease_time),
+                               "end"]))
 
-def send_nak(packet):
-    nak_packet = Ether(dst="ff:ff:ff:ff:ff:ff", src=get_if_hwaddr(conf.iface)) / \
-                 IP(src=server_ip, dst="255.255.255.255") / \
-                 UDP(sport=67, dport=68) / \
-                 BOOTP(op=2, siaddr=server_ip, chaddr=packet[BOOTP].chaddr) / \
-                 DHCP(options=[("message-type", "nak"),
-                               ("server_id", server_ip),
-                               ("end")])
-    sendp(nak_packet, iface=conf.iface)
+    sendp(offer_pkt)
+    print(f"Sent DHCP OFFER to {client_mac} with IP {offered_ip}")
 
+def handle_dhcp_request(pkt):
+    print(f"Received DHCP REQUEST from {pkt[Ether].src}")
+    client_mac = pkt[Ether].src
+    requested_ip = pkt[BOOTP].yiaddr
+    if client_mac in binding_table and binding_table[client_mac] == requested_ip:
+        ack_pkt = (Ether(src=get_if_hwaddr(conf.iface), dst=pkt[Ether].src) /
+                   IP(src="0.0.0.0", dst="255.255.255.255") /
+                   UDP(sport=67, dport=68) /
+                   BOOTP(op=2, yiaddr=requested_ip, siaddr=gateway, chaddr=pkt[BOOTP].chaddr) /
+                   DHCP(options=[("message-type", "ack"),
+                                 ("subnet_mask", subnet_mask),
+                                 ("router", gateway),
+                                 ("name_server", dns_server),
+                                 ("lease_time", lease_time),
+                                 "end"]))
+
+        sendp(ack_pkt)
+        print(f"Sent DHCP ACK to {client_mac} with IP {requested_ip}")
+    else:
+        print(f"IP {requested_ip} not available for {client_mac}")
+
+def dhcp_packet_callback(pkt):
+    if DHCP in pkt:
+        dhcp_message_type = pkt[DHCP].options[0][1]
+        if dhcp_message_type == 1:  # DHCP DISCOVER
+            handle_dhcp_discover(pkt)
+        elif dhcp_message_type == 3:  # DHCP REQUEST
+            handle_dhcp_request(pkt)
+
+def display_binding_table():
+    while True:
+        time.sleep(5)  # Adjust the sleep time as needed
+        print("Binding Table:")
+        for mac, ip in binding_table.items():
+            print(f"MAC: {mac}, IP: {ip}")
+        print("-" * 30)  # Separator for readability
 
 def list_interfaces():
     """
     List all available network interfaces using Scapy.
     """
     print("Available interfaces:")
-    for index, iface in enumerate(conf.ifaces):
+    for index, iface in enumerate(get_if_list()):
         print(f"Index: {index}, Name: {conf.ifaces[iface].name}")
 
-# Start the DHCP server
 if __name__ == "__main__":
+    print("Starting DHCP server...")
+
+    # List available interfaces
     list_interfaces()
     selected_index = input("Please enter the interface index you want to use: ")
-
-    if selected_index.isdigit():
-        selected_index = int(selected_index)
-        if selected_index < len(conf.ifaces):
-            selected_interface = list(conf.ifaces.keys())[selected_index]
-            interface_name = conf.ifaces[selected_interface].name
-            print(f"Using interface {interface_name} for DHCP Starvation attack.")
-            # dhcp_starvation(target_ip, interface_name)
-            print("Starting DHCP server...")
-            sniff(filter="udp and (port 67 or 68)", prn=handle_dhcp, iface=interface_name)
+    try:
+        if selected_index.isdigit():
+            selected_index = int(selected_index)
+            if selected_index < len(conf.ifaces):
+                selected_interface = list(conf.ifaces.keys())[selected_index]
+                interface_name = conf.ifaces[selected_interface].name
+                print(f"Using interface {interface_name} for DHCP Server.")
+            else:
+                raise IndexError("Invalid interface index selected.")
         else:
-            print("Invalid interface index selected.")
-    else:
-        print("Invalid input. Please enter a valid interface index.")
+            raise ValueError("Invalid interface index selected.")
+    except ValueError:
+        print("Invalid input. Please enter a valid number.")
+        exit(1)
+    except IndexError as e:
+        print(e)
+        exit(1)
 
+    # Start the binding table display thread
+    display_thread = threading.Thread(target=display_binding_table)
+    display_thread.daemon = True
+    display_thread.start()
+
+    # Start the DHCP server
+    try:
+        sniff(filter="udp and (port 67 or 68)", prn=dhcp_packet_callback, store=0)
+    except Exception as e:
+        print(f"An error occurred while sniffing: {e}")
