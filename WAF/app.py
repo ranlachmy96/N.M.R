@@ -43,18 +43,26 @@ class PacketSniffer:
         print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
 
         def packet_handler(packet):
-
             packet_type = "Unknown"
+            src_addr = "N/A"
+            dst_addr = "N/A"
+            sport = "N/A"
+            dport = "N/A"
+
             if IP in packet:
                 packet_type = "IP"
+                src_addr = packet[IP].src
+                dst_addr = packet[IP].dst
+                if TCP in packet:
+                    sport = packet[TCP].sport
+                    dport = packet[TCP].dport
+                    packet_type += "/TCP"
+                elif UDP in packet:
+                    sport = packet[UDP].sport
+                    dport = packet[UDP].dport
+                    packet_type += "/UDP"
             elif ICMP in packet:
                 packet_type = "ICMP"
-            elif UDP in packet:
-                packet_type = "UDP"
-            elif TCP in packet:
-                packet_type = "TCP"
-            else:
-                packet_type = "Other"
 
             start_time = time.time()
             with self.lock:
@@ -72,44 +80,29 @@ class PacketSniffer:
                 # Log packet details
                 logging.info(f"Sniffed packet: {packet.summary()}")
 
-                # Extract features from packet for anomaly detection
-                features = self.extract_features(packet)
-                # print(features)
-                features = scaler.transform([features])
-                prediction = model.predict(features)
-                if prediction == 1 or (IP in packet and self.is_bogon(packet[IP].src)):
-                    if IP in packet:
-                        src_addr = packet[IP].src
-                    else:
-                        src_addr = "N/A"
-                    logging.warning(f"Anomaly detected from {src_addr}")
 
-                    # Additional logic to handle the anomaly, e.g., port changing.
-                    global current_port
-                    current_port += 1
-                    subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
-                    self.sniff_port = current_port
 
-                if IP in packet and self.is_bogon(packet[IP].src):
-                    logging.warning(f"{packet_type} Packet from {packet[IP].src} is a bogon address.")
-                else:
-                    if IP in packet:
-                        logging.info(f"{packet_type} Packet from {packet[IP].src} is normal.")
-                    else:
-                        logging.info(f"{packet_type} Packet is normal.")
-
-                # Log specific details of the packet
                 if IP in packet:
-                    src_addr = packet[IP].src
-                    dst_addr = packet[IP].dst
-                    if TCP in packet:
-                        sport = packet[TCP].sport
-                        dport = packet[TCP].dport
-                    elif UDP in packet:
-                        sport = packet[UDP].sport
-                        dport = packet[UDP].dport
+                    # Extract features from packet for anomaly detection
+                    features = self.extract_features(packet)
+                    print("features:", features)
+                    features = scaler.transform([features])
+                    prediction = model.predict(features)
+                    if prediction == 1 or self.is_bogon(packet[IP].src):
+                        logging.warning(f"Anomaly detected from {src_addr}")
+
+                        # Additional logic to handle the anomaly, e.g., port changing.
+                        global current_port
+                        current_port += 1
+                        subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
+                        self.sniff_port = current_port
+
+                    if self.is_bogon(packet[IP].src):
+                        logging.warning(f"{packet_type} Packet from {src_addr} is a bogon address.")
                     else:
-                        sport = dport = "N/A"
+                        logging.info(f"{packet_type} Packet from {src_addr} is normal.")
+
+                    # Log specific details of the packet
                     logging.info(f"{packet_type} Packet from {src_addr}:{sport} to {dst_addr}:{dport}")
                 logging.info(f"Packet length: {len(packet)}")
                 logging.info(f"Packet data: {packet.payload}")
@@ -145,8 +138,15 @@ class PacketSniffer:
             '': 0  # No flag
         }
 
-        src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
-        dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
+        src_addr_parts = packet[IP].src.split('.')
+        src_addr = int(src_addr_parts[0]) << 24 | int(src_addr_parts[1]) << 16 | int(src_addr_parts[2]) << 8 | int(
+            src_addr_parts[3])
+
+        dst_addr_parts = packet[IP].dst.split('.')
+        dst_addr = int(dst_addr_parts[0]) << 24 | int(dst_addr_parts[1]) << 16 | int(dst_addr_parts[2]) << 8 | int(
+            dst_addr_parts[3])
+        # src_addr = int(ipaddress.ip_address(packet[IP].src).packed.hex(), 16)
+        # dst_addr = int(ipaddress.ip_address(packet[IP].dst).packed.hex(), 16)
         pkt_type = PKT_TYPE_MAPPING.get(packet[IP].proto, 0)
         pkt_size = len(packet[IP].payload)
         flags = 0
@@ -154,6 +154,15 @@ class PacketSniffer:
             flags = FLAGS_MAPPING.get(packet[TCP].flags, 0)
         seq_number = packet[TCP].seq if TCP in packet else 0
         packet_id = ''.join(random.choice('123456789') for _ in range(2))
+        time_diff = time.time() - self.current_time
+        time_diff = time_diff * 100000
+        formatted_time = "{:.6f}".format(time_diff)
+        now = time.time() - self.current_time
+        formatted_now = "{:.6f}".format(now)
+        suspected_attack = 0  #normal
+
+        if packet.payload and len(packet.payload) > 60000:
+            suspected_attack = 1
 
         features = [
             src_addr,
@@ -178,11 +187,11 @@ class PacketSniffer:
             0,
             pkt_size,
             0,
-            0,
-            self.current_time,
-            datetime.now().timestamp(),
-            self.current_time,
-            datetime.now().timestamp(),
+            formatted_time,
+            formatted_now,
+            formatted_now,
+            formatted_time,
+            suspected_attack,
         ]
 
         return features
