@@ -14,7 +14,7 @@ def get_interface_for_target(target_ip, interface_guids):
     return None
 
 if __name__ == "__main__":
-    target_ip = "192.168.1.1"
+    target_ip = "127.0.0.1"
     interface_guids = [
         '{1AC9029D-DDDE-4497-917A-361BEA98596A}', '{9E1CF21C-E926-46B0-AA70-9DC1D38E0CB9}',
         '{93BF4183-8E82-4320-A967-E2B8504F25C9}', '{4B705380-B3D2-47CC-87BC-2917B746109D}',
