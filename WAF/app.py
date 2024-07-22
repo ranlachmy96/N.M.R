@@ -85,14 +85,18 @@ class PacketSniffer:
                 if IP in packet:
                     # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
-                    print("features:", features)
+                    # print("features:", features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
-                    if prediction == 1 or self.is_bogon(packet[IP].src):
+                    if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000:
                         logging.warning(f"Anomaly detected from {src_addr}")
 
                         # Additional logic to handle the anomaly, e.g., port changing.
                         global current_port
+                        # For blocking IP addresses or ports
+                        subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule",
+                                        "name=BlockInboundPort{0}".format(current_port), "dir=in", "action=block",
+                                        "protocol=TCP", "localport={0}".format(current_port)])
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
                         self.sniff_port = current_port
