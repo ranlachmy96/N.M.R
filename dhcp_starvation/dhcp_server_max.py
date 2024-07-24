@@ -13,10 +13,17 @@ subnet_mask = "255.255.255.0"
 gateway = "192.168.1.254"  
 dns_server = "8.8.8.8"  
 lease_time = 86400  
+max_requests_per_second = 10  # Rate limiting
 
 # Global variables
 binding_table = {}
 offered_ips = set()
+dhcp_server_running = True
+request_counts = {}
+max_binding_table_size = int(ipaddress.IPv4Address(ip_range_end)) - int(ipaddress.IPv4Address(ip_range_start)) + 1
+
+# Lock for thread safety
+lock = threading.Lock()
 
 def get_next_available_ip():
     start = int(ipaddress.IPv4Address(ip_range_start))
@@ -27,16 +34,33 @@ def get_next_available_ip():
             return ip_str
     return None
 
+def clear_binding_table():
+    with lock:
+        binding_table.clear()
+        offered_ips.clear()
+    print("Binding table cleared.")
+
 def handle_dhcp_discover(pkt):
-    print(f"Received DHCP DISCOVER from {pkt[Ether].src}")
-    client_mac = pkt[Ether].src
+    with lock:
+        client_mac = pkt[Ether].src
+        if request_counts.get(client_mac, 0) >= max_requests_per_second:
+            print(f"Rate limit exceeded for {client_mac}")
+            return
+        request_counts[client_mac] = request_counts.get(client_mac, 0) + 1
+    
+        if len(binding_table) >= max_binding_table_size:
+            print("Binding table is full. Clearing table.")
+            clear_binding_table()
+
+    print(f"Received DHCP DISCOVER from {client_mac}")
     offered_ip = get_next_available_ip()
     if not offered_ip:
         print("No available IPs to offer.")
         return
     
-    offered_ips.add(offered_ip)
-    binding_table[client_mac] = offered_ip
+    with lock:
+        offered_ips.add(offered_ip)
+        binding_table[client_mac] = offered_ip
 
     offer_pkt = (Ether(src=get_if_hwaddr(conf.iface), dst=pkt[Ether].src) /
                  IP(src="0.0.0.0", dst="255.255.255.255") /
@@ -53,49 +77,61 @@ def handle_dhcp_discover(pkt):
     print(f"Sent DHCP OFFER to {client_mac} with IP {offered_ip}")
 
 def handle_dhcp_request(pkt):
-    print(f"Received DHCP REQUEST from {pkt[Ether].src}")
-    client_mac = pkt[Ether].src
+    with lock:
+        client_mac = pkt[Ether].src
+        if request_counts.get(client_mac, 0) >= max_requests_per_second:
+            print(f"Rate limit exceeded for {client_mac}")
+            return
+        request_counts[client_mac] = request_counts.get(client_mac, 0) + 1
+    
+    print(f"Received DHCP REQUEST from {client_mac}")
     requested_ip = pkt[BOOTP].yiaddr
-    if client_mac in binding_table and binding_table[client_mac] == requested_ip:
-        ack_pkt = (Ether(src=get_if_hwaddr(conf.iface), dst=pkt[Ether].src) /
-                   IP(src="0.0.0.0", dst="255.255.255.255") /
-                   UDP(sport=67, dport=68) /
-                   BOOTP(op=2, yiaddr=requested_ip, siaddr=gateway, chaddr=pkt[BOOTP].chaddr) /
-                   DHCP(options=[("message-type", "ack"),
-                                 ("subnet_mask", subnet_mask),
-                                 ("router", gateway),
-                                 ("name_server", dns_server),
-                                 ("lease_time", lease_time),
-                                 "end"]))
+    with lock:
+        if client_mac in binding_table and binding_table[client_mac] == requested_ip:
+            ack_pkt = (Ether(src=get_if_hwaddr(conf.iface), dst=pkt[Ether].src) /
+                       IP(src="0.0.0.0", dst="255.255.255.255") /
+                       UDP(sport=67, dport=68) /
+                       BOOTP(op=2, yiaddr=requested_ip, siaddr=gateway, chaddr=pkt[BOOTP].chaddr) /
+                       DHCP(options=[("message-type", "ack"),
+                                     ("subnet_mask", subnet_mask),
+                                     ("router", gateway),
+                                     ("name_server", dns_server),
+                                     ("lease_time", lease_time),
+                                     "end"]))
 
-        sendp(ack_pkt)
-        print(f"Sent DHCP ACK to {client_mac} with IP {requested_ip}")
-    else:
-        print(f"IP {requested_ip} not available for {client_mac}")
+            sendp(ack_pkt)
+            print(f"Sent DHCP ACK to {client_mac} with IP {requested_ip}")
+        else:
+            print(f"IP {requested_ip} not available for {client_mac}")
 
 def dhcp_packet_callback(pkt):
-    if DHCP in pkt:
-        dhcp_message_type = pkt[DHCP].options[0][1]
-        if dhcp_message_type == 1:  
-            handle_dhcp_discover(pkt)
-        elif dhcp_message_type == 3:  
-            handle_dhcp_request(pkt)
+    if dhcp_server_running:
+        if DHCP in pkt:
+            dhcp_message_type = pkt[DHCP].options[0][1]
+            if dhcp_message_type == 1:  # DHCP DISCOVER
+                handle_dhcp_discover(pkt)
+            elif dhcp_message_type == 3:  # DHCP REQUEST
+                handle_dhcp_request(pkt)
 
 def display_binding_table():
-    while True:
+    while dhcp_server_running:
         time.sleep(5)  
         print("Binding Table:")
-        for mac, ip in binding_table.items():
-            print(f"MAC: {mac}, IP: {ip}")
-        print("-" * 30)  
+        with lock:
+            for mac, ip in binding_table.items():
+                print(f"MAC: {mac}, IP: {ip}")
+        print("-" * 30)
 
 def list_interfaces():
-    """
-    List all available network interfaces using Scapy.
-    """
     print("Available interfaces:")
     for index, iface in enumerate(get_if_list()):
         print(f"Index: {index}, Name: {conf.ifaces[iface].name}")
+
+def reset_rate_limit():
+    while dhcp_server_running:
+        time.sleep(1)
+        with lock:
+            request_counts.clear()
 
 if __name__ == "__main__":
     print("Starting DHCP server...")
@@ -125,6 +161,11 @@ if __name__ == "__main__":
     display_thread = threading.Thread(target=display_binding_table)
     display_thread.daemon = True
     display_thread.start()
+
+    # Start the rate limit reset thread
+    rate_limit_thread = threading.Thread(target=reset_rate_limit)
+    rate_limit_thread.daemon = True
+    rate_limit_thread.start()
 
     # Start the DHCP server
     try:
