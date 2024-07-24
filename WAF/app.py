@@ -48,6 +48,12 @@ class PacketSniffer:
                      ipaddress.ip_address(ip).is_multicast))
         except ValueError:
             return False
+        
+    def log_packet_count(self):
+        while True:
+            time.sleep(10)
+            with self.lock:
+                self.packet_count = 0
 
     def sniff_packets(self):
         print("Starting packet sniffing...")  
@@ -84,7 +90,7 @@ class PacketSniffer:
                     self.packet_rate = self.packet_count / elapsed_time
                     logging.info(f"Packet rate: {self.packet_rate:.2f} packets/second")
 
-                    self.packet_count = 0
+                    # self.packet_count = 0
                     start_time = self.current_time
 
                 logging.info(f"Sniffed packet: {packet.summary()}")
@@ -93,7 +99,7 @@ class PacketSniffer:
                     features = self.extract_features(packet)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
-                    if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000:
+                    if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000 or self.packet_count > 350:
                         logging.warning(f"Anomaly detected from {dst_addr}")
 
                         
@@ -101,7 +107,7 @@ class PacketSniffer:
                         # For blocking IP addresses or ports
                         subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule",
                                         "name=BlockInboundPort{0}".format(current_port), "dir=in", "action=block",
-                                        "protocol=TCP", "localport={0}".format(current_port)])
+                                        "protocol=TCP", "localport={0}".format(current_port), "localip=any"])
                         current_port += 1
                         subprocess.run(['node', '../nodeServer/portChanging/portChange.js', str(current_port)])
                         self.sniff_port = current_port
@@ -110,9 +116,12 @@ class PacketSniffer:
                         logging.warning(f"{packet_type} Packet from {src_addr} is a bogon address.")
                     else:
                         logging.info(f"{packet_type} Packet from {src_addr} is normal.")
-
+                        
+                
                     # Log specific details of the packet
                     logging.info(f"{packet_type} Packet from {src_addr}:{sport} to {dst_addr}:{dport}")
+                    
+                threading.Thread(target=self.log_packet_count, daemon=True).start()
                 logging.info(f"Packet length: {len(packet)}")
                 logging.info(f"Packet data: {packet.payload}")
 
@@ -164,7 +173,7 @@ class PacketSniffer:
         formatted_now = "{:.6f}".format(now)
         suspected_attack = 0  #normal
 
-        if packet.payload and len(packet.payload) > 60000:
+        if packet.payload and len(packet.payload) > 60000 or self.packet_count > 350:
             suspected_attack = 1
 
         features = [

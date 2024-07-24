@@ -4,6 +4,7 @@
  ************************************************************************************** */
 const { spawn } = require('child_process');
 const path = require('path');
+let currentServer = null;
 
 /** *************************************************************************************
  Defines the `startServer` function which starts a server on the specified port.
@@ -17,7 +18,14 @@ const path = require('path');
  ************************************************************************************** */
 exports.startServer = (port) => {
     const indexPath = path.resolve(__dirname, '../index.js');
+
+    if (currentServer) {
+        currentServer.kill();
+        console.log('Server moved to new port');
+    }
+
     const server = spawn('node', [indexPath, port]);
+    currentServer = server;
 
     server.on('error', (error) => {
         if (error.code === 'EADDRINUSE') {
