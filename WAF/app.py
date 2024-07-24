@@ -10,17 +10,27 @@ import random
 from scapy.all import sniff, TCP, IP, get_if_list, get_if_hwaddr
 from scapy.layers.inet import ICMP, UDP
 
-# Configure logging
+# **************************************************************************************
+# Configure logging to record events and anomalies.
+# **************************************************************************************
 logging.basicConfig(filename='waf.log', level=logging.INFO, format='%(asctime)s %(message)s')
 
 app = Flask(__name__)
 
+# **************************************************************************************
+# Load trained anomaly detection model and scaler
+# **************************************************************************************
 model = joblib.load('../anamolyDetector/model.joblib')
 scaler = joblib.load('../anamolyDetector/scaler.joblib')
 current_port = 3000
 
 
-# PacketSniffer class for sniffing packets
+# **************************************************************************************
+# PacketSniffer class to handle packet sniffing and anomaly detection.
+# By Logging the packet details
+# Extracting features from packet for anomaly detection
+# Add Additional logic to handle the anomaly, e.g., port changing.
+# **************************************************************************************
 class PacketSniffer:
     def __init__(self, sniff_port):
         self.sniff_port = sniff_port
@@ -40,7 +50,7 @@ class PacketSniffer:
             return False
 
     def sniff_packets(self):
-        print("Starting packet sniffing...")  # Debug print to indicate sniffing has started
+        print("Starting packet sniffing...")  
 
         def packet_handler(packet):
             packet_type = "Unknown"
@@ -77,21 +87,16 @@ class PacketSniffer:
                     self.packet_count = 0
                     start_time = self.current_time
 
-                # Log packet details
                 logging.info(f"Sniffed packet: {packet.summary()}")
 
-
-
                 if IP in packet:
-                    # Extract features from packet for anomaly detection
                     features = self.extract_features(packet)
-                    # print("features:", features)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000:
                         logging.warning(f"Anomaly detected from {src_addr}")
 
-                        # Additional logic to handle the anomaly, e.g., port changing.
+                        
                         global current_port
                         # For blocking IP addresses or ports
                         subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule",
@@ -205,16 +210,20 @@ class PacketSniffer:
 sniffer = PacketSniffer(sniff_port=current_port)
 
 
-# Endpoint for handling requests
+# **************************************************************************************
+# Flask endpoint to handle requests.
+# **************************************************************************************
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    blocked = False  # Placeholder, since you're only interested in packet sniffing
+    blocked = False  
     if blocked:
         return jsonify({"message": "Request blocked by WAF"}), 403
     return jsonify({"message": "Request allowed"}), 200
 
 
-# Main function to start Flask app and packet sniffing
+# **************************************************************************************
+# Main function to start Flask app and packet sniffing.
+# **************************************************************************************
 if __name__ == '__main__':
     try:
         # Start packet sniffing in a new thread
