@@ -6,25 +6,32 @@ from scapy.layers.dhcp import *
 from scapy.layers.inet import *
 from scapy.layers.l2 import *
 
-# Configuration
+# **************************************************************************************
+# Configuration parameters for the DHCP server.
+# **************************************************************************************
 ip_range_start = "192.168.1.2"  
 ip_range_end = "192.168.1.100"  
 subnet_mask = "255.255.255.0"
 gateway = "192.168.1.254"  
 dns_server = "8.8.8.8"  
 lease_time = 86400  
-max_requests_per_second = 10  # Rate limiting
+max_requests_per_second = 10  
 
-# Global variables
+# **************************************************************************************
+# Initialize the binding table and set of offered IP addresses.
+# **************************************************************************************
 binding_table = {}
 offered_ips = set()
 dhcp_server_running = True
 request_counts = {}
 max_binding_table_size = int(ipaddress.IPv4Address(ip_range_end)) - int(ipaddress.IPv4Address(ip_range_start)) + 1
 
-# Lock for thread safety
+# Initialize a lock for thread synchronization
 lock = threading.Lock()
 
+# **************************************************************************************
+# Function to get the next available IP address in the configured range.
+# **************************************************************************************
 def get_next_available_ip():
     start = int(ipaddress.IPv4Address(ip_range_start))
     end = int(ipaddress.IPv4Address(ip_range_end))
@@ -34,12 +41,19 @@ def get_next_available_ip():
             return ip_str
     return None
 
+# **************************************************************************************
+# Function to clear the binding table and offered IP addresses.
+# **************************************************************************************
 def clear_binding_table():
     with lock:
         binding_table.clear()
         offered_ips.clear()
     print("Binding table cleared.")
 
+# **************************************************************************************
+# Function to handle incoming DHCP DISCOVER packets. 
+# With an added check if the binding table is full.
+# **************************************************************************************
 def handle_dhcp_discover(pkt):
     with lock:
         client_mac = pkt[Ether].src
@@ -76,6 +90,9 @@ def handle_dhcp_discover(pkt):
     sendp(offer_pkt)
     print(f"Sent DHCP OFFER to {client_mac} with IP {offered_ip}")
 
+# **************************************************************************************
+# Function to handle incoming DHCP REQUEST packets.
+# **************************************************************************************
 def handle_dhcp_request(pkt):
     with lock:
         client_mac = pkt[Ether].src
@@ -104,15 +121,22 @@ def handle_dhcp_request(pkt):
         else:
             print(f"IP {requested_ip} not available for {client_mac}")
 
+
+# **************************************************************************************
+# Callback function for sniffing DHCP packets.
+# **************************************************************************************
 def dhcp_packet_callback(pkt):
     if dhcp_server_running:
         if DHCP in pkt:
             dhcp_message_type = pkt[DHCP].options[0][1]
-            if dhcp_message_type == 1:  # DHCP DISCOVER
+            if dhcp_message_type == 1:  
                 handle_dhcp_discover(pkt)
-            elif dhcp_message_type == 3:  # DHCP REQUEST
+            elif dhcp_message_type == 3:  
                 handle_dhcp_request(pkt)
 
+# **************************************************************************************
+# Function to continuously display the current binding table.
+# **************************************************************************************
 def display_binding_table():
     while dhcp_server_running:
         time.sleep(5)  
@@ -122,21 +146,31 @@ def display_binding_table():
                 print(f"MAC: {mac}, IP: {ip}")
         print("-" * 30)
 
+# **************************************************************************************
+# Function to list all available network interfaces using Scapy.
+# **************************************************************************************
 def list_interfaces():
     print("Available interfaces:")
     for index, iface in enumerate(get_if_list()):
         print(f"Index: {index}, Name: {conf.ifaces[iface].name}")
 
+# **************************************************************************************
+# Function to reset the rate limit counters periodically.
+# Reset rate limit counters every second.
+# **************************************************************************************
 def reset_rate_limit():
     while dhcp_server_running:
         time.sleep(1)
         with lock:
             request_counts.clear()
 
+# **************************************************************************************
+# Main function to start the DHCP server.
+# **************************************************************************************
 if __name__ == "__main__":
     print("Starting DHCP server...")
 
-    # List available interfaces
+    
     list_interfaces()
     selected_index = input("Please enter the interface index you want to use: ")
     try:
@@ -157,17 +191,17 @@ if __name__ == "__main__":
         print(e)
         exit(1)
 
-    # Start the binding table display thread
+    # Start a background thread to display the binding table.
     display_thread = threading.Thread(target=display_binding_table)
     display_thread.daemon = True
     display_thread.start()
 
-    # Start the rate limit reset thread
+    # Start a background thread to reset the rate limit counters.
     rate_limit_thread = threading.Thread(target=reset_rate_limit)
     rate_limit_thread.daemon = True
     rate_limit_thread.start()
 
-    # Start the DHCP server
+    # Start sniffing for DHCP packets on the selected interface.
     try:
         sniff(filter="udp and (port 67 or 68)", prn=dhcp_packet_callback, store=0)
     except Exception as e:

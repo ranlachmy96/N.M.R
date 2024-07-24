@@ -6,7 +6,9 @@ from scapy.layers.dhcp import *
 from scapy.layers.inet import *
 from scapy.layers.l2 import *
 
-# Configuration
+# **************************************************************************************
+# Configuration parameters for the DHCP server.
+# **************************************************************************************
 ip_range_start = "192.168.1.2"  
 ip_range_end = "192.168.1.100"  
 subnet_mask = "255.255.255.0"
@@ -14,10 +16,15 @@ gateway = "192.168.1.254"
 dns_server = "8.8.8.8"  
 lease_time = 86400  
 
-# Global variables
+# **************************************************************************************
+# Initialize the binding table and set of offered IP addresses.
+# **************************************************************************************
 binding_table = {}
 offered_ips = set()
 
+# **************************************************************************************
+# Function to get the next available IP address in the configured range.
+# **************************************************************************************
 def get_next_available_ip():
     start = int(ipaddress.IPv4Address(ip_range_start))
     end = int(ipaddress.IPv4Address(ip_range_end))
@@ -27,6 +34,9 @@ def get_next_available_ip():
             return ip_str
     return None
 
+# **************************************************************************************
+# Function to handle incoming DHCP DISCOVER packets.
+# **************************************************************************************
 def handle_dhcp_discover(pkt):
     print(f"Received DHCP DISCOVER from {pkt[Ether].src}")
     client_mac = pkt[Ether].src
@@ -52,6 +62,9 @@ def handle_dhcp_discover(pkt):
     sendp(offer_pkt)
     print(f"Sent DHCP OFFER to {client_mac} with IP {offered_ip}")
 
+# **************************************************************************************
+# Function to handle incoming DHCP REQUEST packets.
+# **************************************************************************************
 def handle_dhcp_request(pkt):
     print(f"Received DHCP REQUEST from {pkt[Ether].src}")
     client_mac = pkt[Ether].src
@@ -72,7 +85,10 @@ def handle_dhcp_request(pkt):
         print(f"Sent DHCP ACK to {client_mac} with IP {requested_ip}")
     else:
         print(f"IP {requested_ip} not available for {client_mac}")
-
+        
+# **************************************************************************************
+# Callback function for sniffing DHCP packets.
+# **************************************************************************************
 def dhcp_packet_callback(pkt):
     if DHCP in pkt:
         dhcp_message_type = pkt[DHCP].options[0][1]
@@ -80,7 +96,10 @@ def dhcp_packet_callback(pkt):
             handle_dhcp_discover(pkt)
         elif dhcp_message_type == 3:  
             handle_dhcp_request(pkt)
-
+            
+# **************************************************************************************
+# Function to continuously display the current binding table.
+# **************************************************************************************
 def display_binding_table():
     while True:
         time.sleep(5)  
@@ -89,6 +108,9 @@ def display_binding_table():
             print(f"MAC: {mac}, IP: {ip}")
         print("-" * 30)  
 
+# **************************************************************************************
+# Function to list all available network interfaces using Scapy.
+# **************************************************************************************
 def list_interfaces():
     """
     List all available network interfaces using Scapy.
@@ -97,10 +119,13 @@ def list_interfaces():
     for index, iface in enumerate(get_if_list()):
         print(f"Index: {index}, Name: {conf.ifaces[iface].name}")
 
+# **************************************************************************************
+# Main function to start the DHCP server.
+# **************************************************************************************
 if __name__ == "__main__":
     print("Starting DHCP server...")
 
-    # List available interfaces
+    
     list_interfaces()
     selected_index = input("Please enter the interface index you want to use: ")
     try:
@@ -121,12 +146,12 @@ if __name__ == "__main__":
         print(e)
         exit(1)
 
-    # Start the binding table display thread
+    # Start a background thread to display the binding table.
     display_thread = threading.Thread(target=display_binding_table)
     display_thread.daemon = True
     display_thread.start()
 
-    # Start the DHCP server
+    # Start sniffing for DHCP packets on the selected interface.
     try:
         sniff(filter="udp and (port 67 or 68)", prn=dhcp_packet_callback, store=0)
     except Exception as e:
