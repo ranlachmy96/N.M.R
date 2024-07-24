@@ -53,6 +53,7 @@ class PacketSniffer:
         while True:
             time.sleep(10)
             with self.lock:
+                print(f"Packet count: {self.packet_count}")
                 self.packet_count = 0
 
     def sniff_packets(self):
@@ -99,7 +100,7 @@ class PacketSniffer:
                     features = self.extract_features(packet)
                     features = scaler.transform([features])
                     prediction = model.predict(features)
-                    if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000 or self.packet_count > 350:
+                    if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000 or self.packet_count > 7000:
                         logging.warning(f"Anomaly detected from {dst_addr}")
 
                         
@@ -121,7 +122,6 @@ class PacketSniffer:
                     # Log specific details of the packet
                     logging.info(f"{packet_type} Packet from {src_addr}:{sport} to {dst_addr}:{dport}")
                     
-                threading.Thread(target=self.log_packet_count, daemon=True).start()
                 logging.info(f"Packet length: {len(packet)}")
                 logging.info(f"Packet data: {packet.payload}")
 
@@ -140,6 +140,7 @@ class PacketSniffer:
             return
 
         # Start sniffing packets without a specific filter to capture all packets
+        threading.Thread(target=self.log_packet_count, daemon=True).start()
         sniff(prn=packet_handler, store=0, iface=loopback_interface, stop_filter=lambda x: not self.running)
 
     def extract_features(self, packet):
