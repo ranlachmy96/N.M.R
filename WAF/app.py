@@ -94,7 +94,7 @@ class PacketSniffer:
                     features = scaler.transform([features])
                     prediction = model.predict(features)
                     if prediction == 1 or self.is_bogon(packet[IP].src) or len(packet) > 60000:
-                        logging.warning(f"Anomaly detected from {src_addr}")
+                        logging.warning(f"Anomaly detected from {dst_addr}")
 
                         
                         global current_port
